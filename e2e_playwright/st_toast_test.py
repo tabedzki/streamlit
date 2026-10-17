@@ -16,7 +16,12 @@ import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from e2e_playwright.conftest import ImageCompareFunction, wait_for_app_loaded
-from e2e_playwright.shared.app_utils import click_button, expect_font, reset_hovering
+from e2e_playwright.shared.app_utils import (
+    click_button,
+    expect_font,
+    get_button,
+    reset_hovering,
+)
 from e2e_playwright.shared.theme_utils import apply_theme_via_window
 
 # Startup script emits two default-duration emoji toasts used by rendering tests.
@@ -199,6 +204,39 @@ def test_toast_persists_through_rerun(app: Page):
     # It still auto-hides after its (default 4s) duration rather than lingering.
     # Extra slack beyond 4s covers post-rerun mount + exit animation.
     expect(toast).not_to_be_visible(timeout=7000)
+
+
+def test_toast_updates_in_place(app: Page):
+    """Test that msg.toast(...) replaces the content of an existing toast."""
+    click_button(app, "Update toast")
+
+    ready_toast = app.get_by_test_id("stToast").filter(has_text="Ready!")
+    expect(ready_toast).to_be_visible()
+    expect(ready_toast).to_have_count(1)
+    expect(ready_toast.get_by_test_id("stToastDynamicIcon")).to_have_text("🥞")
+    # The earlier content is replaced rather than left behind as extra toasts.
+    expect(
+        app.get_by_test_id("stToast").filter(has_text="Gathering ingredients...")
+    ).to_have_count(0)
+    expect(app.get_by_test_id("stToast").filter(has_text="Cooking...")).to_have_count(0)
+
+
+def test_toast_restarts_when_rerun_reemits_it(app: Page):
+    """Test that a new run's toast replaces a still-visible toast at its position."""
+    click_button(app, "Update toast")
+    toasts = app.get_by_test_id("stToast")
+    expect(toasts.filter(has_text="Ready!")).to_be_visible()
+
+    # Click without waiting for the run to finish: the first message is only
+    # shown until the run's first update.
+    get_button(app, "Update toast").click()
+
+    # The new run restarts the sequence in the same toast instead of keeping
+    # the previous run's content.
+    expect(toasts.filter(has_text="Gathering ingredients...")).to_be_visible()
+    expect(toasts.filter(has_text="Ready!")).to_have_count(0)
+    expect(toasts.filter(has_text="Ready!")).to_be_visible()
+    expect(toasts.filter(has_text="Ready!")).to_have_count(1)
 
 
 @pytest.mark.skip_browser("firefox")  # Firefox runs into sub-pixel height flakiness

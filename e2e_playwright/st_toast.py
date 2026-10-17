@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
+
 import streamlit as st
 
 st.set_page_config(layout="wide")
@@ -36,6 +38,13 @@ if st.button("Show duration toasts"):
     st.toast("I am a toast with a short duration", duration=2)
     st.toast("I am a toast with a long duration", duration="long")
     st.toast("I am a persistent toast", duration="infinite")
+
+if st.button("Update toast"):
+    msg = st.toast("Gathering ingredients...")
+    time.sleep(1)
+    msg.toast("Cooking...")
+    time.sleep(0.5)
+    msg.toast("Ready!", icon="🥞", duration="infinite")
 
 if st.button("Toast and rerun"):
     st.toast("Toast survives rerun", icon="🚀")

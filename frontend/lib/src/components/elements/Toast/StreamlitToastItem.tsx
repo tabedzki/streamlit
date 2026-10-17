@@ -37,14 +37,14 @@ import {
   StyledToastWrapper,
   StyledViewButton,
 } from "./styled-components"
-import type { StreamlitToastContent } from "./toastQueue"
+import { type StreamlitToastContent, useToastContent } from "./toastQueue"
 
 export function StreamlitToastItem({
   toast,
 }: {
   toast: QueuedToast<StreamlitToastContent>
 }): ReactElement {
-  const { body, icon } = toast.content
+  const { body, icon } = useToastContent(toast)
   const [expanded, setExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
   const textRef = useRef<HTMLDivElement>(null)

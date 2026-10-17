@@ -14,7 +14,12 @@
  * limitations under the License.
  */
 
-import { UNSTABLE_ToastQueue as ToastQueue } from "react-aria-components/Toast"
+import { useSyncExternalStore } from "react"
+
+import {
+  type QueuedToast,
+  UNSTABLE_ToastQueue as ToastQueue,
+} from "react-aria-components/Toast"
 
 /** Content for a standard `st.toast`: a markdown body and optional icon. */
 export interface StreamlitToastContent {
@@ -28,8 +33,62 @@ export interface StreamlitToastContent {
    * that de-dupe path, not to rendering an individual toast.
    */
   toastId?: string
+  /**
+   * Auto-hide timeout in milliseconds that the toast was last shown or updated
+   * with (`undefined` for a toast without auto-hide). Used to tell whether a
+   * re-emitted toast is identical to the visible one.
+   */
+  timeout?: number
 }
 
 export const toastQueue = new ToastQueue<StreamlitToastContent>({
   maxVisibleToasts: Infinity,
 })
+
+/**
+ * Content set by in-place updates (`msg.toast(...)`), keyed by queued toast
+ * key. react-aria's ToastQueue has no update API, and replacing a toast would
+ * move it in the stack and reset its UI state, so updated content is kept here
+ * and read by the rendered toast instead.
+ */
+const updatedContents = new Map<string, StreamlitToastContent>()
+const contentListeners = new Set<() => void>()
+
+// Drop updated content once its toast has been closed.
+toastQueue.subscribe(() => {
+  for (const key of updatedContents.keys()) {
+    if (!toastQueue.visibleToasts.some(toast => toast.key === key)) {
+      updatedContents.delete(key)
+    }
+  }
+})
+
+function subscribeToContentUpdates(listener: () => void): () => void {
+  contentListeners.add(listener)
+  return () => contentListeners.delete(listener)
+}
+
+/** Returns the current content of a queued toast, including updates. */
+export function getToastContent(
+  toast: QueuedToast<StreamlitToastContent>
+): StreamlitToastContent {
+  return updatedContents.get(toast.key) ?? toast.content
+}
+
+/** Replaces the content of a visible toast without re-queuing it. */
+export function updateToastContent(
+  key: string,
+  content: StreamlitToastContent
+): void {
+  updatedContents.set(key, content)
+  contentListeners.forEach(listener => listener())
+}
+
+/** Subscribes a rendered toast to in-place content updates. */
+export function useToastContent(
+  toast: QueuedToast<StreamlitToastContent>
+): StreamlitToastContent {
+  return useSyncExternalStore(subscribeToContentUpdates, () =>
+    getToastContent(toast)
+  )
+}

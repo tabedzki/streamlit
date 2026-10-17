@@ -281,6 +281,304 @@ describe("Toast Component", () => {
     expect(screen.getAllByRole("alertdialog")).toHaveLength(1)
   })
 
+  describe("updating a toast in place (msg.toast(...))", () => {
+    const UPDATED_BODY = "Ready!"
+
+    it("replaces the visible toast's content when the element updates", () => {
+      const { rerender } = renderComponent(
+        getProps({ body: "Gathering ingredients...", icon: "" })
+      )
+      expect(screen.getByRole("alertdialog")).toHaveTextContent(
+        "Gathering ingredients..."
+      )
+
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: "Cooking...", icon: "" })} />
+        </>
+      )
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: UPDATED_BODY, icon: "🥞" })} />
+        </>
+      )
+
+      const toasts = screen.getAllByRole("alertdialog")
+      expect(toasts).toHaveLength(1)
+      expect(toasts[0]).toHaveTextContent(UPDATED_BODY)
+      expect(toasts[0]).toHaveTextContent("🥞")
+      expect(toasts[0]).not.toHaveTextContent("Gathering ingredients...")
+      expect(toasts[0]).not.toHaveTextContent("Cooking...")
+    })
+
+    it("does not add a toast when re-rendered with unchanged content", () => {
+      const props = getProps()
+      const { rerender } = renderComponent(props)
+      const keyBefore = toastQueue.visibleToasts[0].key
+
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps()} />
+        </>
+      )
+
+      expect(toastQueue.visibleToasts).toHaveLength(1)
+      expect(toastQueue.visibleToasts[0].key).toBe(keyBefore)
+    })
+
+    it("does not re-show a toast that was dismissed before the update", async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const { rerender } = renderComponent(getProps())
+
+      await user.click(screen.getByRole("button", { name: "Close" }))
+      act(() => {
+        vi.runOnlyPendingTimers()
+      })
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: UPDATED_BODY })} />
+        </>
+      )
+
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+
+    it("does not re-show a toast that auto-hid before the update", () => {
+      const { rerender } = renderComponent(getProps({ duration: 1 }))
+      act(() => {
+        vi.advanceTimersByTime(1_100)
+      })
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: UPDATED_BODY, duration: 1 })} />
+        </>
+      )
+
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+
+    it("applies the updated duration", () => {
+      const { rerender } = renderComponent(getProps({ duration: 1 }))
+
+      // duration=0 means the updated toast stays until dismissed
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: UPDATED_BODY, duration: 0 })} />
+        </>
+      )
+      act(() => {
+        vi.advanceTimersByTime(5_000)
+      })
+
+      expect(screen.getByRole("alertdialog")).toHaveTextContent(UPDATED_BODY)
+    })
+
+    it("keeps the toast's identity and stack position", () => {
+      const Wrapper = ({ body }: { body: string }): ReactElement => (
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body }, "event-0")} />
+          <Toast {...getProps({ body: "Newer toast" }, "event-1")} />
+        </>
+      )
+      const { rerender } = render(<Wrapper body="Cooking..." />)
+      const keysBefore = toastQueue.visibleToasts.map(t => t.key)
+      const textsBefore = screen
+        .getAllByRole("alertdialog")
+        .map(t => t.textContent)
+
+      rerender(<Wrapper body={UPDATED_BODY} />)
+
+      expect(toastQueue.visibleToasts.map(t => t.key)).toEqual(keysBefore)
+      expect(
+        screen.getAllByRole("alertdialog").map(t => t.textContent)
+      ).toEqual(textsBefore.map(t => t?.replace("Cooking...", UPDATED_BODY)))
+    })
+
+    it("keeps an expanded toast expanded", async () => {
+      simulateOverflow()
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const { rerender } = renderComponent(
+        getProps({ icon: "", body: LONG_MESSAGE })
+      )
+      await user.click(screen.getByRole("button", { name: "view more" }))
+
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ icon: "", body: `${LONG_MESSAGE}!` })} />
+        </>
+      )
+
+      expect(screen.getByRole("alertdialog")).toHaveTextContent(
+        `${LONG_MESSAGE}!`
+      )
+      expect(
+        screen.getByRole("button", { name: "view less" })
+      ).toBeInTheDocument()
+    })
+
+    it("restarts the timer on each update", () => {
+      const { rerender } = renderComponent(getProps({ duration: 1 }))
+      act(() => {
+        vi.advanceTimersByTime(900)
+      })
+
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: UPDATED_BODY, duration: 1 })} />
+        </>
+      )
+      act(() => {
+        vi.advanceTimersByTime(900)
+      })
+      expect(screen.getByRole("alertdialog")).toHaveTextContent(UPDATED_BODY)
+
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+
+    it("auto-hides after updating an infinite toast to a timed one", () => {
+      const { rerender } = renderComponent(getProps({ duration: 0 }))
+
+      rerender(
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: UPDATED_BODY, duration: 1 })} />
+        </>
+      )
+      expect(screen.getByRole("alertdialog")).toHaveTextContent(UPDATED_BODY)
+
+      act(() => {
+        vi.advanceTimersByTime(1_100)
+      })
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+
+    it("only updates the toast with the matching toastId", () => {
+      const Wrapper = ({ body }: { body: string }): ReactElement => (
+        <>
+          {createContainer()}
+          <Toast {...getProps({ body: "Other toast" }, "event-0")} />
+          <Toast {...getProps({ body }, "event-1")} />
+        </>
+      )
+      const { rerender } = render(<Wrapper body="Cooking..." />)
+
+      rerender(<Wrapper body={UPDATED_BODY} />)
+
+      const toasts = screen.getAllByRole("alertdialog")
+      expect(toasts).toHaveLength(2)
+      expect(screen.getByText("Other toast")).toBeVisible()
+      expect(screen.getByText(UPDATED_BODY)).toBeVisible()
+      expect(screen.queryByText("Cooking...")).not.toBeInTheDocument()
+    })
+  })
+
+  describe("re-emitting a toast at the same position in a new run", () => {
+    // The Toast element is keyed by scriptRunId, so a new run remounts it.
+    const renderRun = (
+      runId: string,
+      elementProps: Partial<ToastProto>
+    ): ReactElement => (
+      <>
+        {createContainer()}
+        <Toast key={runId} {...getProps(elementProps, "event-0")} />
+      </>
+    )
+
+    it("restarts the visible toast with the new run's content", () => {
+      const { rerender } = render(
+        renderRun("run-1", { body: "Ready!", icon: "🥞" })
+      )
+      const keyBefore = toastQueue.visibleToasts[0].key
+
+      rerender(
+        renderRun("run-2", { body: "Gathering ingredients...", icon: "" })
+      )
+
+      const toasts = screen.getAllByRole("alertdialog")
+      expect(toasts).toHaveLength(1)
+      expect(toasts[0]).toHaveTextContent("Gathering ingredients...")
+      expect(toasts[0]).not.toHaveTextContent("Ready!")
+      expect(toastQueue.visibleToasts[0].key).toBe(keyBefore)
+    })
+
+    it("restarts the timer when the content differs", () => {
+      const { rerender } = render(
+        renderRun("run-1", { body: "Ready!", duration: 1 })
+      )
+      act(() => {
+        vi.advanceTimersByTime(900)
+      })
+
+      rerender(renderRun("run-2", { body: "Gathering...", duration: 1 }))
+      act(() => {
+        vi.advanceTimersByTime(900)
+      })
+      expect(screen.getByRole("alertdialog")).toHaveTextContent("Gathering...")
+
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+
+    it("keeps the original timer when the content is identical", () => {
+      // A toast re-emitted unchanged on every rerun still expires after its
+      // duration instead of being kept alive by the reruns.
+      const { rerender } = render(renderRun("run-1", { duration: 1 }))
+      act(() => {
+        vi.advanceTimersByTime(900)
+      })
+
+      rerender(renderRun("run-2", { duration: 1 }))
+      expect(screen.getAllByRole("alertdialog")).toHaveLength(1)
+
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+
+    it("applies an icon-only change", () => {
+      const { rerender } = render(renderRun("run-1", { icon: "🐶" }))
+
+      rerender(renderRun("run-2", { icon: "🥞" }))
+
+      const toast = screen.getByRole("alertdialog")
+      expect(toast).toHaveTextContent("🥞")
+      expect(toast).not.toHaveTextContent("🐶")
+    })
+
+    it("shows a new toast if the previous one was already closed", () => {
+      const { rerender } = render(renderRun("run-1", { duration: 1 }))
+      act(() => {
+        vi.advanceTimersByTime(1_100)
+      })
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+
+      rerender(renderRun("run-2", { body: "Gathering ingredients..." }))
+
+      expect(screen.getByRole("alertdialog")).toHaveTextContent(
+        "Gathering ingredients..."
+      )
+    })
+  })
+
   it("shows separate toasts for distinct toastIds", () => {
     // Guards against over-eager de-duplication: two identical st.toast("Hip!")
     // calls live at distinct delta paths and must both be shown.
